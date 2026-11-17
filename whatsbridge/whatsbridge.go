@@ -130,6 +130,12 @@ var (
 	disableAutoDlDoc     atomic.Bool
 	rngMu                sync.Mutex
 	rng                  = rand.New(rand.NewSource(time.Now().UnixNano()))
+	qrSessionMu          sync.Mutex
+	qrSessionCancel      context.CancelFunc
+	qrReadyCh            chan struct{}
+	qrReadyOnce          sync.Once
+	qrEmitterActive      atomic.Bool
+	lastLoginConnectUnix atomic.Int64
 )
 
 type bridgeLogger struct {
@@ -545,9 +551,66 @@ func applyDeviceFingerprint() {
 	}
 }
 
+func resetQRReadySignal() {
+	qrSessionMu.Lock()
+	defer qrSessionMu.Unlock()
+	if qrSessionCancel != nil {
+		qrSessionCancel()
+		qrSessionCancel = nil
+	}
+	qrReadyCh = make(chan struct{})
+	qrReadyOnce = sync.Once{}
+	qrEmitterActive.Store(false)
+}
+
+func markQRReady() {
+	qrSessionMu.Lock()
+	ch := qrReadyCh
+	qrReadyOnce.Do(func() {
+		if ch != nil {
+			close(ch)
+		}
+	})
+	qrSessionMu.Unlock()
+}
+
+func waitForQRReady(ctx context.Context, timeout time.Duration) bool {
+	qrSessionMu.Lock()
+	ch := qrReadyCh
+	qrSessionMu.Unlock()
+	if ch == nil {
+		return false
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-ch:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func cleanInternationalPhoneDigits(raw string) string {
+	var b strings.Builder
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	digits := b.String()
+	for len(digits) > 8 && strings.HasPrefix(digits, "00") {
+		digits = digits[2:]
+	}
+	return digits
+}
+
 func ConnectClient() error {
 	mu.Lock()
 	cli := client
+	ctx := baseCtx
 	mu.Unlock()
 	if cli == nil {
 		return errors.New("client not initialized")
@@ -555,10 +618,77 @@ func ConnectClient() error {
 	if cli.IsConnected() {
 		return nil
 	}
+
+	if cli.Store != nil && cli.Store.ID == nil {
+		resetQRReadySignal()
+		qrSessionMu.Lock()
+		qrCtx, cancel := context.WithCancel(ctx)
+		qrSessionCancel = cancel
+		qrSessionMu.Unlock()
+
+		qrChan, err := cli.GetQRChannel(qrCtx)
+		if err != nil {
+			if !errors.Is(err, whatsmeow.ErrQRAlreadyConnected) && !errors.Is(err, whatsmeow.ErrQRStoreContainsID) {
+				cancel()
+				return err
+			}
+		} else {
+			qrEmitterActive.Store(true)
+			go func(ch <-chan whatsmeow.QRChannelItem) {
+				defer qrEmitterActive.Store(false)
+				for item := range ch {
+					switch item.Event {
+					case whatsmeow.QRChannelEventCode:
+						markQRReady()
+						emitJSON("QR", map[string]any{
+							"code":      item.Code,
+							"timeoutMs": item.Timeout.Milliseconds(),
+							"timestamp": time.Now().UnixMilli(),
+						})
+					case whatsmeow.QRChannelSuccess.Event:
+						markQRReady()
+						emitJSON("CONNECTION_STATE", map[string]any{
+							"state":     "PAIRED",
+							"ownJid":    safeJID(cli.Store.ID),
+							"timestamp": time.Now().UnixMilli(),
+						})
+					case whatsmeow.QRChannelTimeout.Event:
+						emitJSON("CONNECTION_STATE", map[string]any{
+							"state":     "QR_EXPIRED",
+							"reason":    "QR code expired. Tap Reload QR to generate a new one.",
+							"timestamp": time.Now().UnixMilli(),
+						})
+					case whatsmeow.QRChannelClientOutdated.Event:
+						emitJSON("PAIR_ERROR", map[string]any{
+							"error":     "WhatsApp protocol version outdated. Refresh and retry.",
+							"timestamp": time.Now().UnixMilli(),
+						})
+					case whatsmeow.QRChannelScannedWithoutMultidevice.Event:
+						emitJSON("PAIR_ERROR", map[string]any{
+							"error":     "Primary phone does not have Linked Devices enabled.",
+							"timestamp": time.Now().UnixMilli(),
+						})
+					case whatsmeow.QRChannelEventError:
+						errMsg := "Pairing failed"
+						if item.Error != nil {
+							errMsg = item.Error.Error()
+						}
+						emitJSON("PAIR_ERROR", map[string]any{
+							"error":     errMsg,
+							"timestamp": time.Now().UnixMilli(),
+						})
+					}
+				}
+			}(qrChan)
+		}
+		lastLoginConnectUnix.Store(time.Now().Unix())
+	}
+
 	return cli.Connect()
 }
 
 func DisconnectClient() {
+	resetQRReadySignal()
 	mu.Lock()
 	cli := client
 	mu.Unlock()
@@ -572,6 +702,12 @@ func ResetSocket() {
 	cli := client
 	mu.Unlock()
 	if cli != nil {
+		if cli.Store != nil && cli.Store.ID == nil {
+			DisconnectClient()
+			time.Sleep(200 * time.Millisecond)
+			_ = ConnectClient()
+			return
+		}
 		cli.ResetConnection()
 	}
 }
@@ -584,18 +720,41 @@ func PairWithPhoneNumber(phone string) (string, error) {
 	if cli == nil {
 		return "", errors.New("client not initialized")
 	}
-	if !cli.IsConnected() {
-		if err := cli.Connect(); err != nil {
+	if cli.Store != nil && cli.Store.ID != nil {
+		return "", errors.New("already linked to a WhatsApp account")
+	}
+
+	digits := cleanInternationalPhoneDigits(phone)
+	if len(digits) <= 6 {
+		return "", errors.New("enter full phone number with country code")
+	}
+	if strings.HasPrefix(digits, "0") {
+		return "", errors.New("include country code without leading 0 (e.g. 15551234567)")
+	}
+
+	// Ensure a fresh pre-login socket so the 160s linking window has not nearly expired.
+	lastConn := lastLoginConnectUnix.Load()
+	needsFreshConnect := !cli.IsConnected() || lastConn == 0 || (time.Now().Unix()-lastConn) > 45
+	if needsFreshConnect {
+		DisconnectClient()
+		time.Sleep(200 * time.Millisecond)
+		if err := ConnectClient(); err != nil {
 			return "", fmt.Errorf("connect before pairing: %w", err)
 		}
 	}
-	code, err := cli.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, "Chrome (Mac OS)")
+
+	// Wait for the pre-login Noise handshake & first QR frame before sending companion_hello IQ.
+	if !waitForQRReady(ctx, 12*time.Second) {
+		time.Sleep(800 * time.Millisecond)
+	}
+
+	code, err := cli.PairPhone(ctx, digits, true, whatsmeow.PairClientChrome, "Chrome (Mac OS)")
 	if err != nil {
 		return "", err
 	}
 	emitJSON("PAIR_CODE", map[string]any{
 		"code":      code,
-		"phone":     phone,
+		"phone":     digits,
 		"timestamp": time.Now().UnixMilli(),
 	})
 	return code, nil
@@ -2293,7 +2452,8 @@ func extractEphemeralDuration(m *waE2E.Message) uint32 {
 func handleWhatsmeowEvent(rawEvt any) {
 	switch evt := rawEvt.(type) {
 	case *events.QR:
-		if len(evt.Codes) > 0 {
+		markQRReady()
+		if !qrEmitterActive.Load() && len(evt.Codes) > 0 {
 			emitJSON("QR", map[string]any{
 				"code":      evt.Codes[0],
 				"timestamp": time.Now().UnixMilli(),
@@ -2301,11 +2461,29 @@ func handleWhatsmeowEvent(rawEvt any) {
 		}
 
 	case *events.PairSuccess:
+		markQRReady()
 		emitJSON("CONNECTION_STATE", map[string]any{
 			"state":     "PAIRED",
 			"ownJid":    evt.ID.String(),
 			"ownLid":    evt.LID.String(),
 			"platform":  evt.Platform,
+			"timestamp": time.Now().UnixMilli(),
+		})
+
+	case *events.PairError:
+		errMsg := "Pairing failed"
+		if evt.Error != nil {
+			errMsg = evt.Error.Error()
+		}
+		emitJSON("PAIR_ERROR", map[string]any{
+			"error":     errMsg,
+			"timestamp": time.Now().UnixMilli(),
+		})
+
+	case *events.ConnectFailure:
+		emitJSON("CONNECTION_STATE", map[string]any{
+			"state":     "CONNECT_FAILED",
+			"reason":    fmt.Sprintf("Connection failed (%v): %s", evt.Reason, evt.Message),
 			"timestamp": time.Now().UnixMilli(),
 		})
 

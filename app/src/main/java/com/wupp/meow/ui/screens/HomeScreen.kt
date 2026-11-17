@@ -3582,13 +3582,25 @@ private fun LinkCompanionDialog(
                         )
                     }
                 }
-                if (!bridgeStatus.latestQrCode.isNullOrBlank()) {
-                    Text(
-                        text = "QR Token ready (${bridgeStatus.latestQrCode.take(28)}...)",
-                        fontFamily = mono,
-                        fontSize = 11.sp,
-                        color = colors.textSecondary
-                    )
+                val qrBmp = remember(bridgeStatus.latestQrCode) {
+                    bridgeStatus.latestQrCode?.takeIf { it.isNotBlank() }?.let { generateQrImage(it, 360) }
+                }
+                if (qrBmp != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(180.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.White)
+                            .padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = qrBmp,
+                            contentDescription = "WhatsApp Link QR Code",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         },

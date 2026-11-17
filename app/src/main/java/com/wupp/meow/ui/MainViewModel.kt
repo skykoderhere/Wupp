@@ -628,9 +628,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pairWithPhoneNumber(phone: String, onResult: (String) -> Unit) {
         viewModelScope.launch {
-            val digits = phone.filter { it.isDigit() }
-            if (digits.length < 7) {
-                showToast("Enter country code + phone digits")
+            var digits = phone.filter { it.isDigit() }
+            while (digits.length > 8 && digits.startsWith("00")) {
+                digits = digits.drop(2)
+            }
+            if (digits.length < 7 || digits.startsWith("0")) {
+                showToast("Enter country code + phone digits (e.g. 15551234567)")
+                onResult("")
                 return@launch
             }
             WaRealtimeService.pairWithPhoneNumber(digits)
@@ -639,17 +643,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onResult(code)
                 }
                 .onFailure { err ->
-                    showToast("Pair error: ${err.message}")
+                    showToast("Pair error: ${err.message ?: "Connection failed"}")
                     onResult("")
                 }
         }
     }
 
     fun reconnectSocket() {
-        val intent = Intent(appContext, WaRealtimeService::class.java).apply {
-            action = WaRealtimeService.ACTION_RECONNECT
-        }
-        appContext.startService(intent)
+        WaRealtimeService.refreshConnection(appContext)
     }
 
     fun sendText(

@@ -255,9 +255,7 @@ class WaRealtimeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_RECONNECT -> serviceScope.launch {
-                if (hasValidatedInternet() && runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
-                    runCatching { Whatsbridge.connectClient() }
-                }
+                refreshConnectionInternal()
             }
             ACTION_DISCONNECT -> serviceScope.launch {
                 runCatching { Whatsbridge.disconnectClient() }
@@ -416,6 +414,8 @@ class WaRealtimeService : Service() {
                 serviceScope.launch {
                     if (runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)) {
                         runCatching { Whatsbridge.resetSocket() }
+                    } else if (!runCatching { Whatsbridge.isConnected() }.getOrDefault(false)) {
+                        refreshConnectionInternal()
                     }
                 }
             }
@@ -432,6 +432,43 @@ class WaRealtimeService : Service() {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
         networkCallback = null
+    }
+
+    private suspend fun refreshConnectionInternal() {
+        val loggedIn = runCatching { Whatsbridge.isLoggedIn() }.getOrDefault(false)
+        if (loggedIn) {
+            if (hasValidatedInternet()) {
+                runCatching {
+                    if (Whatsbridge.isConnected()) Whatsbridge.resetSocket() else Whatsbridge.connectClient()
+                }.onFailure { err ->
+                    _bridgeStatus.value = _bridgeStatus.value.copy(
+                        connectionState = "CONNECT_FAILED",
+                        lastError = err.message
+                    )
+                }
+            }
+            return
+        }
+
+        _bridgeStatus.value = _bridgeStatus.value.copy(
+            engineReady = true,
+            isLoggedIn = false,
+            latestQrCode = null,
+            lastError = null,
+            connectionState = "AWAITING_PAIR"
+        )
+        runCatching { Whatsbridge.disconnectClient() }
+        delay(250L)
+        runCatching { Whatsbridge.connectClient() }
+            .onFailure { err ->
+                Log.w(TAG, "Pairing reconnect failed: ${err.message}")
+                _bridgeStatus.value = _bridgeStatus.value.copy(
+                    engineReady = true,
+                    isLoggedIn = false,
+                    connectionState = "CONNECT_FAILED",
+                    lastError = err.message ?: "Unable to connect to WhatsApp"
+                )
+            }
     }
 
     private fun initializeGoBridge() {
@@ -468,8 +505,8 @@ class WaRealtimeService : Service() {
                 Log.e(TAG, "Go bridge init failed", err)
                 _bridgeStatus.value = _bridgeStatus.value.copy(
                     engineReady = true,
-                    connectionState = "OFFLINE_READY",
-                    lastError = err.message
+                    connectionState = "CONNECT_FAILED",
+                    lastError = err.message ?: "Unable to reach WhatsApp servers"
                 )
             }
         }
@@ -512,17 +549,27 @@ class WaRealtimeService : Service() {
                 _bridgeStatus.value = _bridgeStatus.value.copy(
                     latestQrCode = json.optString("code"),
                     isLoggedIn = false,
-                    connectionState = "QR_READY"
+                    connectionState = "QR_READY",
+                    lastError = null
                 )
             }
             "PAIR_CODE" -> {
                 _bridgeStatus.value = _bridgeStatus.value.copy(
                     latestPairCode = json.optString("code"),
-                    connectionState = "PAIR_CODE_READY"
+                    connectionState = "PAIR_CODE_READY",
+                    lastError = null
+                )
+            }
+            "PAIR_ERROR" -> {
+                val errMsg = json.optString("error", "Device linking failed")
+                _bridgeStatus.value = _bridgeStatus.value.copy(
+                    connectionState = "PAIR_ERROR",
+                    lastError = errMsg
                 )
             }
             "CONNECTION_STATE" -> {
                 val st = json.optString("state", "DISCONNECTED")
+                val reason = json.optString("reason", "")
                 val own = json.optString("ownJid", _bridgeStatus.value.ownJid)
                 val nextLoggedIn = when (st) {
                     "LOGGED_OUT" -> false
@@ -534,8 +581,13 @@ class WaRealtimeService : Service() {
                     isLoggedIn = nextLoggedIn,
                     connectionState = st,
                     ownJid = if (st == "LOGGED_OUT") "" else own,
-                    latestQrCode = if (nextLoggedIn) null else _bridgeStatus.value.latestQrCode,
-                    latestPairCode = if (nextLoggedIn) null else _bridgeStatus.value.latestPairCode
+                    latestQrCode = if (nextLoggedIn || st == "QR_EXPIRED") null else _bridgeStatus.value.latestQrCode,
+                    latestPairCode = if (nextLoggedIn) null else _bridgeStatus.value.latestPairCode,
+                    lastError = when {
+                        st == "PAIRED" || st == "CONNECTED" -> null
+                        reason.isNotBlank() -> reason
+                        else -> _bridgeStatus.value.lastError
+                    }
                 )
                 val statusLine = when {
                     !nextLoggedIn -> "Waiting to link WhatsApp"
@@ -1738,6 +1790,22 @@ class WaRealtimeService : Service() {
             }
         }
 
+        fun refreshConnection(context: Context) {
+            val running = instance
+            if (running != null) {
+                running.serviceScope.launch {
+                    running.refreshConnectionInternal()
+                }
+            } else {
+                runCatching {
+                    val intent = Intent(context, WaRealtimeService::class.java).apply {
+                        action = ACTION_RECONNECT
+                    }
+                    ContextCompat.startForegroundService(context, intent)
+                }
+            }
+        }
+
         fun onChatOpened(context: Context, chatJid: String) {
             val appCtx = context.applicationContext
             runCatching {
@@ -1907,9 +1975,19 @@ class WaRealtimeService : Service() {
 
         suspend fun pairWithPhoneNumber(phoneDigits: String): Result<String> = withContext(Dispatchers.IO) {
             runCatching {
+                _bridgeStatus.value = _bridgeStatus.value.copy(lastError = null)
                 val code = Whatsbridge.pairWithPhoneNumber(phoneDigits)
-                _bridgeStatus.value = _bridgeStatus.value.copy(latestPairCode = code, connectionState = "PAIR_CODE_READY")
+                _bridgeStatus.value = _bridgeStatus.value.copy(
+                    latestPairCode = code,
+                    connectionState = "PAIR_CODE_READY",
+                    lastError = null
+                )
                 code
+            }.onFailure { err ->
+                _bridgeStatus.value = _bridgeStatus.value.copy(
+                    connectionState = "PAIR_ERROR",
+                    lastError = err.message ?: "Failed to generate pairing code"
+                )
             }
         }
 

@@ -282,24 +282,44 @@ fun LinkDeviceScreen(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
+                                val hasQrError = bridgeStatus.connectionState == "QR_EXPIRED" ||
+                                    bridgeStatus.connectionState == "CONNECT_FAILED" ||
+                                    bridgeStatus.connectionState == "PAIR_ERROR" ||
+                                    !bridgeStatus.lastError.isNullOrBlank()
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp)
                                 ) {
-                                    ContainedLoadingIndicator(
-                                        containerColor = Color(0xFFE7F8F2),
-                                        indicatorColor = Color(0xFF00A884),
-                                        modifier = Modifier.size(48.dp)
-                                    )
+                                    if (!hasQrError) {
+                                        ContainedLoadingIndicator(
+                                            containerColor = Color(0xFFE7F8F2),
+                                            indicatorColor = Color(0xFF00A884),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = WuppIcons.QrCode,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00A884),
+                                            modifier = Modifier.size(42.dp)
+                                        )
+                                    }
                                     Text(
-                                        text = if (bridgeStatus.connectionState == "CONNECTED" || bridgeStatus.connectionState == "PAIRED") {
-                                            "Finishing link..."
-                                        } else {
-                                            "Generating QR code..."
+                                        text = when {
+                                            bridgeStatus.connectionState == "CONNECTED" || bridgeStatus.connectionState == "PAIRED" ->
+                                                "Finishing link..."
+                                            bridgeStatus.connectionState == "QR_EXPIRED" ->
+                                                "QR code expired.\nTap Reload QR below."
+                                            !bridgeStatus.lastError.isNullOrBlank() ->
+                                                bridgeStatus.lastError
+                                            else ->
+                                                "Generating QR code..."
                                         },
                                         color = Color(0xFF3B4A54),
                                         fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.Center
                                     )
                                 }
                             }
@@ -400,6 +420,7 @@ fun LinkDeviceScreen(
                             Button(
                                 onClick = {
                                     haptic()
+                                    requestedCode = null
                                     awaitingCode = true
                                     onPairPhone(phoneInput) { code ->
                                         awaitingCode = false
@@ -430,6 +451,15 @@ fun LinkDeviceScreen(
                                     text = "Get linking code",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            if (!bridgeStatus.lastError.isNullOrBlank() && activePairCode.isNullOrBlank()) {
+                                Text(
+                                    text = bridgeStatus.lastError,
+                                    color = Color(0xFFFF7A7A),
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 17.sp
                                 )
                             }
                         }
@@ -555,7 +585,7 @@ private fun StepInstructionsCard(steps: List<String>) {
     }
 }
 
-private fun generateQrImage(content: String, sizePx: Int): ImageBitmap? {
+internal fun generateQrImage(content: String, sizePx: Int): ImageBitmap? {
     return runCatching {
         val hints = mapOf(
             EncodeHintType.MARGIN to 1
