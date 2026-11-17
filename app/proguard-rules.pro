@@ -23,10 +23,10 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class com.wa.beastclient.**$$serializer { *; }
--keepclassmembers class com.wa.beastclient.** {
+-keep,includedescriptorclasses class com.wupp.meow.**$$serializer { *; }
+-keepclassmembers class com.wupp.meow.** {
     *** Companion;
 }
--keepclasseswithmembers class com.wa.beastclient.** {
+-keepclasseswithmembers class com.wupp.meow.** {
     kotlinx.serialization.KSerializer serializer(...);
 }

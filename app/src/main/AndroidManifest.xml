@@ -16,7 +16,6 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".WaBeastApp"
@@ -25,7 +24,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WaBeastClient">
+        android:theme="@style/Theme.WuppMeow">
 
         <activity
             android:name=".MainActivity"
@@ -48,10 +47,6 @@
             android:name=".core.service.SyncWatchdogJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
-
-        <receiver
-            android:name=".core.update.UpdateInstallReceiver"
-            android:exported="false" />
 
         <receiver
             android:name=".core.service.BootReceiver"

@@ -18,7 +18,7 @@
     <string name="nav_groups">Gruplar</string>
     <string name="nav_updates">Güncellemeler</string>
     <string name="nav_communities">Topluluklar</string>
-    <string name="nav_settings">Ayarlar</string>
+    <string name="nav_settings">Sen</string>
     <string name="home_search_placeholder">Sohbet veya kişi ara…</string>
     <string name="home_archived_chats">Arşivlenmiş</string>
     <string name="home_archived_row_title">Arşivlenmiş (%1$d)</string>
@@ -219,4 +219,9 @@
 
     <!-- Quoted Message Jump (#34) -->
     <string name="chat_quoted_not_found">Orijinal mesaj bu cihazda bulunamadı</string>
+
+    <!-- Tactile Feedback & Mood -->
+    <string name="settings_haptic_feedback_title">Dokunsal Geri Bildirim</string>
+    <string name="settings_haptic_feedback_subtitle">Dokunma, uzun basma ve tepkilerde dokunsal titreşim</string>
+    <string name="settings_current_mood_title">Mevcut ruh hali</string>
 </resources>

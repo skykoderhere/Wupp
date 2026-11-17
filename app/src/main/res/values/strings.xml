@@ -17,7 +17,7 @@
     <string name="nav_groups">Groups</string>
     <string name="nav_updates">Updates</string>
     <string name="nav_communities">Communities</string>
-    <string name="nav_settings">Settings</string>
+    <string name="nav_settings">You</string>
     <string name="home_search_placeholder">Search chats or contacts…</string>
     <string name="home_archived_chats">Archived</string>
     <string name="home_archived_row_title">Archived (%1$d)</string>
@@ -218,4 +218,9 @@
 
     <!-- Quoted Message Jump (#34) -->
     <string name="chat_quoted_not_found">Original message not found on this device</string>
+
+    <!-- Tactile Feedback & Mood -->
+    <string name="settings_haptic_feedback_title">Haptic Feedback</string>
+    <string name="settings_haptic_feedback_subtitle">Tactile vibration feedback for taps, long-presses, and reactions</string>
+    <string name="settings_current_mood_title">Current mood</string>
 </resources>

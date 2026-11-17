@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="wupp_icon_bg">#131C23</color>
-    <color name="wa_dark_bg">#0B141A</color>
-    <color name="wa_dark_surface">#111B21</color>
-    <color name="wa_dark_bubble_in">#202C33</color>
-    <color name="wa_dark_bubble_out">#005C4B</color>
-    <color name="wa_dark_composer">#2A3942</color>
-    <color name="wa_dark_chip_selected">#0A332C</color>
-    <color name="wa_dark_nav_indicator">#103629</color>
+    <color name="wupp_icon_bg">#07090B</color>
+    <color name="wa_dark_bg">#07090B</color>
+    <color name="wa_dark_surface">#101519</color>
+    <color name="wa_dark_bubble_in">#141B20</color>
+    <color name="wa_dark_bubble_out">#004E40</color>
+    <color name="wa_dark_composer">#141B20</color>
+    <color name="wa_dark_chip_selected">#0A2E25</color>
+    <color name="wa_dark_nav_indicator">#0D3025</color>
     <color name="wa_accent_green">#25D366</color>
     <color name="wa_fab_teal">#00A884</color>
     <color name="wa_read_blue">#53BDEB</color>
-    <color name="wa_text_primary">#E9EDEF</color>
-    <color name="wa_text_secondary">#8696A0</color>
+    <color name="wa_text_primary">#F1F5F7</color>
+    <color name="wa_text_secondary">#8E9DA8</color>
     <color name="wa_deleted_red">#F15C6D</color>
     <color name="wa_light_bg">#EFEAE2</color>
     <color name="wa_light_surface">#FFFFFF</color>

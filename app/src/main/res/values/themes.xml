@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.WaBeastClient" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#111B21</item>
-        <item name="android:navigationBarColor">#111B21</item>
-        <item name="android:windowBackground">#0B141A</item>
+    <style name="Theme.WuppMeow" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#07090B</item>
+        <item name="android:navigationBarColor">#07090B</item>
+        <item name="android:windowBackground">#07090B</item>
     </style>
 
     <style name="ThemeOverlay.Wupp.EmojiPicker.Dark" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorAccent">#25D366</item>
-        <item name="android:colorControlNormal">#8696A0</item>
-        <item name="android:textColorPrimary">#E9EDEF</item>
-        <item name="android:colorButtonNormal">#202C33</item>
-        <item name="android:colorBackground">#0B141A</item>
+        <item name="android:colorControlNormal">#8E9DA8</item>
+        <item name="android:textColorPrimary">#F1F5F7</item>
+        <item name="android:colorButtonNormal">#141B20</item>
+        <item name="android:colorBackground">#07090B</item>
     </style>
 
     <style name="ThemeOverlay.Wupp.EmojiPicker.Light" parent="android:Theme.Material.Light.NoActionBar">

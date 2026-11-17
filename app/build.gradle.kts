@@ -7,29 +7,6 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-val detectedGithubRepo: String = runCatching {
-    val process = ProcessBuilder("git", "remote", "get-url", "origin")
-        .directory(rootProject.projectDir)
-        .redirectErrorStream(true)
-        .start()
-    val url = process.inputStream.bufferedReader().readText().trim()
-    val exited = process.waitFor()
-    if (exited == 0 && url.contains("github.com", ignoreCase = true)) {
-        url
-            .replace(Regex("^https?://github\\.com/"), "")
-            .replace(Regex("^git@github\\.com:"), "")
-            .removeSuffix(".git")
-            .trim('/')
-    } else ""
-}.getOrDefault("")
-
-val wuppGithubRepo: String = (
-    (project.findProperty("WUPP_GITHUB_REPO") as? String)?.takeIf { detectedGithubRepo.isBlank() && it.contains("/") }
-        ?: detectedGithubRepo.ifBlank {
-            (project.findProperty("WUPP_GITHUB_REPO") as? String).orEmpty().ifBlank { "hanzalaramz/Wupp" }
-        }
-    ).replace("\"", "")
-
 val wuppVersionCode: Int = (
     System.getenv("WUPP_VERSION_CODE")
         ?: (project.findProperty("WUPP_VERSION_CODE") as? String)
@@ -51,17 +28,15 @@ val hasLocalSigningKey: Boolean = signingProps.getProperty("storeFile")?.let {
 } == true
 
 android {
-    namespace = "com.wa.beastclient"
+    namespace = "com.wupp.meow"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.wupp.app"
+        applicationId = "com.wupp.meow"
         minSdk = 26
         targetSdk = 34
         versionCode = wuppVersionCode * 10
         versionName = wuppVersionName
-
-        buildConfigField("String", "GITHUB_REPO", "\"$wuppGithubRepo\"")
 
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
@@ -70,6 +45,12 @@ android {
     }
 
     signingConfigs {
+        create("debugConfig") {
+            storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (hasLocalSigningKey) {
             create("release") {
                 storeFile = rootProject.file(signingProps.getProperty("storeFile"))
@@ -80,16 +61,10 @@ android {
         }
     }
 
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a")
-            isUniversalApk = true
-        }
-    }
-
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debugConfig")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -119,28 +94,6 @@ android {
     }
 }
 
-androidComponents {
-    val abiCodes = mapOf(
-        "armeabi-v7a" to 1,
-        "arm64-v8a" to 2,
-        "x86_64" to 3
-    )
-    onVariants { variant ->
-        val suffix = if (variant.buildType == "debug") "-debug" else ""
-        variant.outputs.forEach { output ->
-            val abiFilter = output.filters.find {
-                it.filterType == com.android.build.api.variant.FilterConfiguration.FilterType.ABI
-            }?.identifier
-            val abiOffset = abiFilter?.let { abiCodes[it] } ?: 0
-            output.versionCode.set((wuppVersionCode * 10) + abiOffset)
-            val abiLabel = abiFilter ?: "universal"
-            (output as? com.android.build.api.variant.impl.VariantOutputImpl)
-                ?.outputFileName
-                ?.set("Wupp-${wuppVersionName}-${abiLabel}${suffix}.apk")
-        }
-    }
-}
-
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -148,7 +101,6 @@ kotlin {
 }
 
 dependencies {
-    implementation(files("libs/whatsbridge.aar"))
 
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
